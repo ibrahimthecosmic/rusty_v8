@@ -6,6 +6,7 @@ name: flow-build
 #
 #   * x86_64-unknown-linux-gnu   -> normal Linux (glibc)
 #   * x86_64-pc-windows-msvc     -> Windows (MSVC, static CRT compatible)
+#   * aarch64-apple-darwin       -> macOS on Apple Silicon
 #
 # Feature set matches Deno v2.9.0's pin:
 #   v8 = { version = "149.4.0", default-features = false, features = ["simdutf"] }
@@ -36,6 +37,7 @@ on:
           - all
           - x86_64-unknown-linux-gnu
           - x86_64-pc-windows-msvc
+          - aarch64-apple-darwin
   push:
     tags:
       # `v150.4.0` (matches the crate version → RUSTY_V8_MIRROR path) and any
@@ -73,7 +75,8 @@ jobs:
         run: |
           all='[
             {"target":"x86_64-unknown-linux-gnu","runner":"ubuntu-22.04","lib":"librusty_v8","ext":"a"},
-            {"target":"x86_64-pc-windows-msvc","runner":"windows-2022","lib":"rusty_v8","ext":"lib"}
+            {"target":"x86_64-pc-windows-msvc","runner":"windows-2022","lib":"rusty_v8","ext":"lib"},
+            {"target":"aarch64-apple-darwin","runner":"macos-15","lib":"librusty_v8","ext":"a"}
           ]'
           if [ "$TARGET_FILTER" = "all" ]; then
             matrix="$(echo "$all" | jq -c .)"
@@ -170,8 +173,9 @@ jobs:
         run: |
           version="v0.8.2"
           case "$TARGET" in
-            *windows*) platform="x86_64-pc-windows-msvc"; exe=".exe" ;;
-            *)         platform="x86_64-unknown-linux-musl"; exe="" ;;
+            *windows*)       platform="x86_64-pc-windows-msvc"; exe=".exe" ;;
+            *apple-darwin*)  platform="$TARGET"; exe="" ;;
+            *)               platform="x86_64-unknown-linux-musl"; exe="" ;;
           esac
           basename="sccache-$version-$platform"
           curl -LO "https://github.com/mozilla/sccache/releases/download/$version/$basename.tar.gz"
@@ -190,6 +194,13 @@ jobs:
           sudo apt-get -qq remove 'clang-*' || true
           sudo apt-get install lld-19 clang-19 clang-tools-19 libclang-19-dev -y
           echo "LIBCLANG_PATH=/usr/lib/llvm-19/lib" >> "$GITHUB_ENV"
+
+      - name: Set LIBCLANG_PATH (macOS)
+        # bindgen needs libclang; point it at the Xcode toolchain's copy. The
+        # GN build itself uses V8's bundled clang, same as Windows.
+        if: runner.os == 'macOS'
+        run: |
+          echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV"
 
       - name: Build (release, simdutf, from source)
         env:
